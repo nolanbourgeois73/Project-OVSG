@@ -1,0 +1,38 @@
+// deffinition des variables d'enter 
+const int pinV1 = 36;  // point d'enter VP pout la mesure de courant (shunt)
+const int pinV3 = 34;  // point d'entrer d34 pour la mesure de la tension (pdt)
+//definition de la varable gain du shunt 75mv/50A = 0,0015
+const float gain  = 0.0015;  // gain 
+
+//
+void setup() {
+  Serial.begin(9600);
+  analogReadResolution(12);  // 12 bits = 0 à 4095
+}
+
+void loop() {
+  int rawV1 = analogRead(pinV1);// pour passer d'une valeur analogique a une valeur numerique pour la mesure de courant 
+  int rawV3 = analogRead(pinV3);// idem pour la mesure de tension 
+
+  float voltageV1 = (rawV1 / 4095.0) * 3.3;  // conversion de la Tension en volts pour la mesure de la determination du courant ( shunt )
+  float voltageV3 = (rawV3 / 4095.0) * 3.3;  //
+   
+  float deltaV2 = voltageV1 / 4941;// tension final que l'on divise par le gain que l'on a apliquer avec l'amplificateur de difference  
+  float tensionfinal = voltageV3 / 0.204; // tension que l'on * par le gain du PDT  pour le PDT 
+  float current = deltaV2 / gain;         // I = U / R
+
+  Serial.print("V1: ");
+  Serial.print(voltageV1, 2);
+  Serial.print(" V,V3: ");
+  Serial.print(voltageV3, 2);
+  Serial.print(" V,Vf: ");
+  Serial.print(tensionfinal, 2);// Tension de (PDT)
+  Serial.print(" V, ΔV: ");
+  Serial.print(deltaV2*1000, 2);// Tension du shunt 
+  Serial.print(" mV, Courant: ");
+  Serial.print(current * 1000,1); // courant du shunt 
+  Serial.println(" mA");
+
+  delay(1000);
+}
+
