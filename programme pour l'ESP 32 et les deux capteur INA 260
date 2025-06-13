@@ -1,0 +1,68 @@
+// appel des fonctions 
+#include <Wire.h>
+#include <Adafruit_INA260.h>
+
+
+// Définition des adresses I2C des deux capteurs
+#define INA260_panneaux_ADDRESS 0x41
+#define INA260_utilisation_ADDRESS 0x40
+
+
+// Création des objets capteurs
+Adafruit_INA260 ina260_1;
+Adafruit_INA260 ina260_2;
+
+
+void setup()
+{
+  // initialisation de la communication
+  Serial.begin(115200);
+  while (!Serial);
+
+  //demande d'aller chercher les informations sur les broches SDA et SCL de la GPIO 21 et de la GPIO 22 
+  Wire.setSDA(21); // GP21
+  Wire.setSCL(22); // GP22
+  Wire.begin();
+
+  // Initialisation du premier capteur
+  if (!ina260_1.begin(INA260_panneaux_ADDRESS)) {
+    Serial.println("Erreur : INA260 #1 non détecté !");
+    while (1);
+  }
+
+  // Initialisation du second capteur
+  if (!ina260_2.begin(INA260_utilisation_ADDRESS)) {
+    Serial.println("Erreur : INA260 #2 non détecté !");
+    while (1);
+  }
+
+  Serial.println("Deux INA260 détectés !");
+
+}
+
+
+void loop() 
+{
+  // Lecture du premier capteur
+  float current1 = ina260_1.readCurrent();
+  float voltage1 = ina260_1.readBusVoltage();
+  float power1   = ina260_1.readPower();
+
+  // Lecture du second capteur
+  float current2 = ina260_2.readCurrent();
+  float voltage2 = ina260_2.readBusVoltage();
+  float power2   = ina260_2.readPower();
+
+  // Affichage des données du premier capteur
+  Serial.print("capteur panneaux - ");
+  Serial.print("V: "); Serial.print(voltage1 / 1000.0); Serial.print(" V, ");
+  Serial.print("I: "); Serial.print(current1 / 1000.0); Serial.print(" A, ");
+  Serial.print("P: "); Serial.print(power1 / 1000.0); Serial.println(" W");
+
+  // Affichage des données du second capteur
+  Serial.print("capteur utilisation - ");
+  Serial.print("V: "); Serial.print(voltage2 / 1000.0); Serial.print(" V, ");
+  Serial.print("I: "); Serial.print(current2 / 1000.0); Serial.print(" A, ");
+  Serial.print("P: "); Serial.print(power2 / 1000.0); Serial.println(" W");
+
+  delay(1000);
