@@ -1,0 +1,109 @@
+#include <Wire.h>
+#include <Adafruit_INA260.h>
+#include <Ethernet.h>
+#include <EthernetUdp.h>
+
+// Définition des adresses I2C
+#define INA260_panneaux_ADDRESS 0x41
+#define INA260_utilisation_ADDRESS 0x40
+#define MAX_Size_ReplyBuffer 128  // taille du buffer de réponse
+
+unsigned int localPort = 80;  // port UDP local d'écoute
+
+// Buffers pour réception et réponse
+char packetBuffer[UDP_TX_PACKET_MAX_SIZE];
+char ReplyBuffer[MAX_Size_ReplyBuffer];
+
+// Objet UDP
+EthernetUDP Udp;
+
+// Objets capteurs
+Adafruit_INA260 ina260_1;
+Adafruit_INA260 ina260_2;
+
+void setup() {
+  delay(1000);
+
+  Ethernet.init(17);  // pin pour Raspberry Pi Pico
+  delay(1000);
+
+  byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+  IPAddress ip(10, 76, 66, 66);
+  IPAddress dns(192, 168, 20, 10);
+  IPAddress gateway(10, 76, 0, 1);
+  IPAddress subnet(255, 255, 0, 0);
+
+  Ethernet.begin(mac, ip, dns, gateway, subnet);
+
+  Serial.begin(9600);
+  while (!Serial)
+    ;  // attendre port série
+
+  Wire.setSDA(0);  // GPIO 0
+  Wire.setSCL(1);  // GPIO 1
+  Wire.begin();
+
+  if (!ina260_1.begin(INA260_panneaux_ADDRESS)) {
+    Serial.println("Erreur : INA260 #1 non détecté !");
+    while (1)
+      ;
+  }
+
+  if (!ina260_2.begin(INA260_utilisation_ADDRESS)) {
+    Serial.println("Erreur : INA260 #2 non détecté !");
+    while (1)
+      ;
+  }
+
+  Serial.println("Deux INA260 détectés !");
+
+  if (Ethernet.hardwareStatus() == EthernetNoHardware) {
+    Serial.println("Pas de cable Ethernet détecté.");
+    while (true)
+      ;
+  }
+
+  if (Ethernet.linkStatus() == LinkOFF) {
+    Serial.println("Câble Ethernet non connecté.");
+  }
+
+  Udp.begin(localPort);
+}
+
+void loop() {
+  int packetSize = Udp.parsePacket();
+  if (packetSize) {
+    Udp.read(packetBuffer, UDP_TX_PACKET_MAX_SIZE);
+    packetBuffer[packetSize] = '\0';
+
+
+    float current1 = ina260_1.readCurrent();
+    float voltage1 = ina260_1.readBusVoltage();
+
+    float current2 = ina260_2.readCurrent();
+    float voltage2 = ina260_2.readBusVoltage();
+    
+
+    Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+
+    if (strcmp(packetBuffer, "info\r\n") == 0) 
+    {
+      snprintf(ReplyBuffer, MAX_Size_ReplyBuffer,"INA260 OK - IP: %s courant panneaus : A, tension panneaux: V, courant utilisation: A,  tension utilisation: V",  Ethernet.localIP().toString().c_str());
+      Udp.write(ReplyBuffer);
+
+    } else if (strcmp(packetBuffer, "data\r\n") == 0) 
+    {
+      //envoie en CSV
+      String csv = String(current1/1000, 2) +"," + String(voltage1/1000, 2) +"," + String(current2/1000, 2) +"," + String(voltage2/1000, 2);
+      Udp.write(csv.c_str());
+
+    } else 
+    {
+      Udp.write("Commande non reconnue.\n");
+    }
+
+    Udp.endPacket();
+  }
+
+  delay(1000);
+}
