@@ -1,103 +1,124 @@
+// appel des fonctions 
 #include <Wire.h>
 #include <Adafruit_INA260.h>
 #include <Ethernet.h>
 #include <EthernetUdp.h>
+#include <NTPClient.h>
+#include <TimeLib.h>  // Pour gérer la date complète
 
 // Définition des adresses I2C
 #define INA260_panneaux_ADDRESS 0x41
 #define INA260_utilisation_ADDRESS 0x40
-#define MAX_Size_ReplyBuffer 128  // taille du buffer de réponse
+#define MAX_Size_ReplyBuffer 128
 
-unsigned int localPort = 80;  // port UDP local d'écoute
+// Réseau Ethernet
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+IPAddress ip(10, 76, 66, 66);
+IPAddress dns(192, 168, 20, 10);
+IPAddress gateway(10, 76, 0, 1);
+IPAddress subnet(255, 255, 0, 0);
+IPAddress ntp(192,168,20,123);
 
-// Buffers pour réception et réponse
+// initialisation des Ports UDP
+unsigned int localPort = 80;
+EthernetUDP Udp;
+EthernetUDP ntpUDP;
+
+// creation de l'objet ntp avec temps tout les 10 minutes 60000 seconds = 10 minutes )
+NTPClient timeClient(ntpUDP,ntp, 0, 60000);
+
+// Buffers de réception et réponse
 char packetBuffer[UDP_TX_PACKET_MAX_SIZE];
 char ReplyBuffer[MAX_Size_ReplyBuffer];
 
-// Objet UDP
-EthernetUDP Udp;
-
-// Objets capteurs
+// initialisation Objets capteurs INA260
 Adafruit_INA260 ina260_1;
 Adafruit_INA260 ina260_2;
 
-void setup() {
+void setup() 
+{
   delay(1000);
+  Serial.begin(9600);
+  while (!Serial);
 
-  Ethernet.init(17);  // pin pour Raspberry Pi Pico
+  Ethernet.init(17);  // Broche du W5500 EVB PICO 
   delay(1000);
-
-  byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
-  IPAddress ip(10, 76, 66, 66);
-  IPAddress dns(192, 168, 20, 10);
-  IPAddress gateway(10, 76, 0, 1);
-  IPAddress subnet(255, 255, 0, 0);
-
   Ethernet.begin(mac, ip, dns, gateway, subnet);
 
-  Serial.begin(9600);
-  while (!Serial)
-    ;  // attendre port série
+  if (Ethernet.hardwareStatus() == EthernetNoHardware) 
+  {
+    Serial.println("Pas de carte Ethernet détectée !");
+    while (true);
+  }
 
+  if (Ethernet.linkStatus() == LinkOFF) 
+  {
+    Serial.println("Câble Ethernet non connecté !");
+  }
+
+  Udp.begin(localPort);
+  timeClient.begin();  // Démarrer NTP
+
+  // Initialisation com I2C
   Wire.setSDA(0);  // GPIO 0
   Wire.setSCL(1);  // GPIO 1
   Wire.begin();
 
-  if (!ina260_1.begin(INA260_panneaux_ADDRESS)) {
+  if (!ina260_1.begin(INA260_panneaux_ADDRESS)) 
+  {
     Serial.println("Erreur : INA260 #1 non détecté !");
-    while (1)
-      ;
+    while (1);
   }
 
-  if (!ina260_2.begin(INA260_utilisation_ADDRESS)) {
+  if (!ina260_2.begin(INA260_utilisation_ADDRESS)) 
+  {
     Serial.println("Erreur : INA260 #2 non détecté !");
-    while (1)
-      ;
+    while (1);
   }
 
-  Serial.println("Deux INA260 détectés !");
-
-  if (Ethernet.hardwareStatus() == EthernetNoHardware) {
-    Serial.println("Pas de cable Ethernet détecté.");
-    while (true)
-      ;
-  }
-
-  if (Ethernet.linkStatus() == LinkOFF) {
-    Serial.println("Câble Ethernet non connecté.");
-  }
-
-  Udp.begin(localPort);
+  Serial.println("INA260 détectés et NTP initialisé !");
 }
 
-void loop() {
+void loop() 
+{
+  // Mise à jour de l'heure via NTP
+  timeClient.update();
+  setTime(timeClient.getEpochTime());  // Convertit l'heure NTP en temps structuré
+
+  // Vérifie si un paquet UDP est reçu
   int packetSize = Udp.parsePacket();
-  if (packetSize) {
+  if (packetSize) 
+  {
     Udp.read(packetBuffer, UDP_TX_PACKET_MAX_SIZE);
     packetBuffer[packetSize] = '\0';
 
+    //calule des tenions et des courants
 
     float current1 = ina260_1.readCurrent();
     float voltage1 = ina260_1.readBusVoltage();
 
     float current2 = ina260_2.readCurrent();
     float voltage2 = ina260_2.readBusVoltage();
-    
+
+    // Format de date et heure complète
+    char datetime[25];
+    sprintf(datetime, "%04d-%02d-%02d %02d:%02d:%02d", year(), month(), day(), hour(), minute(), second());
 
     Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+    // envoyer la commande ncat.exe -u 10.76.66.66 80 Dans l'invité de commande ouvir une autre page windows powersshell, puis écrire data ou info !!!sans espace 
 
     if (strcmp(packetBuffer, "info\r\n") == 0) 
     {
       snprintf(ReplyBuffer, MAX_Size_ReplyBuffer,"INA260 OK - IP: %s courant panneaus : A, tension panneaux: V, courant utilisation: A,  tension utilisation: V",  Ethernet.localIP().toString().c_str());
       Udp.write(ReplyBuffer);
-
-    } else if (strcmp(packetBuffer, "data\r\n") == 0) 
+    } 
+    else if (strcmp(packetBuffer, "data\r\n") == 0) 
     {
-      //envoie en CSV
-      String csv = String(current1/1000, 2) +"," + String(voltage1/1000, 2) +"," + String(current2/1000, 2) +"," + String(voltage2/1000, 2);
+      String csv = String(datetime) + "," + String(current1 / 1000, 2) +","+ String(voltage1 / 1000, 2) +"," + String(current2 / 1000, 2)+"," + String(voltage2 / 1000, 2);
       Udp.write(csv.c_str());
 
-    } else 
+    } 
+    else
     {
       Udp.write("Commande non reconnue.\n");
     }
@@ -105,5 +126,7 @@ void loop() {
     Udp.endPacket();
   }
 
-  delay(1000);
+  delay(1000);  // Délai de 1 second entre les cycles
 }
+
+
